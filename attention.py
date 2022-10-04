@@ -21,8 +21,8 @@ def attention(query: Tensor,
     along with the attention pattern itself.
     """
     d_key = query.size(-1)
-    attn_logits = query @ key.transpose(-2, -1) / math.sqrt(d_key)
-
+    attn_logits = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_key)
+    
     if mask is not None:
         attn_logits.masked_fill_(mask == False, -1e9)  # negative infinity, or close enough
 
@@ -31,7 +31,7 @@ def attention(query: Tensor,
     if dropout_module is not None:
         attn_pattern = dropout_module(attn_pattern)
 
-    return attn_pattern @ value, attn_pattern
+    return torch.matmul(attn_pattern, value), attn_pattern
 
 
 class MultiHeadedAttention(nn.Module):
@@ -71,7 +71,7 @@ class MultiHeadedAttention(nn.Module):
 
         # end up with (batch, sequence, model)
         x = (x.transpose(1, 2)
-             .reshape(n_batches, -1, self.h * self.d_key))
+             .reshape(n_batches, -1, self.n_heads * self.d_key))
 
         del query
         del key

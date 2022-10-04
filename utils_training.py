@@ -6,8 +6,7 @@ from torch import Tensor, nn
 from transformer import EncoderDecoder
 from utils_model import subsequent_mask
 
-max_src_in_batch = 0
-max_tgt_in_batch = 0
+global max_src_in_batch, max_tgt_in_batch
 
 
 class Batch(object):
@@ -51,7 +50,7 @@ def batch_size_fn(new_batch: Batch, count: int, so_far: int):
         max_tgt_in_batch = 0
 
     max_src_in_batch = max(max_src_in_batch, len(new_batch.src))
-    max_tgt_in_batch = max(max_tgt_in_batch, len(new_batch.tgt))
+    max_tgt_in_batch = max(max_tgt_in_batch, len(new_batch.tgt) + 2)  # since we add a meta token at the beginning
 
     src_elements = count * max_src_in_batch
     tgt_elements = count * max_tgt_in_batch
@@ -146,7 +145,9 @@ class SimpleLoss(object):
             x.reshape(-1, x.size(-1)),
             y.reshape(-1)
         ) / norm
-        loss.backward()
+
+        if loss.requires_grad:
+            loss.backward()
 
         if self.scheduler is not None:
             self.scheduler.step()

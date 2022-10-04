@@ -32,7 +32,7 @@ def run_epoch(data_loader: DataLoader[Batch], model: nn.Module, loss_fn, log_int
         if i % log_interval == 0:
             elapsed = time.time() - start
 
-            print(f"Epoch step: {i + 1}/{len(data_loader)} | "
+            print(f"Epoch step: {i + 1} | "
                   + f"Loss (per token): {loss / batch.n_tokens} | "
                   + f"Tokens per sec: {running_tokens / elapsed}")
 
@@ -47,3 +47,6 @@ def data_gen(n_vocab: int, batch_size: int, n_batches: int):
         data = torch.randint(1, n_vocab, size=(batch_size, 10)).detach()
         data[:, 0] = 1
         yield Batch(src=data, tgt=data, pad_token=0)
+
+        
+        
