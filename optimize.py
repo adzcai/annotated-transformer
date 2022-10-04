@@ -1,29 +1,7 @@
+from typing import Optional
 import torch
 from torch import Tensor
 import torch.nn as nn
-
-
-class SimpleLoss(object):
-    def __init__(self, generator, criterion, scheduler: Optional[NoamOpt] = None):
-        self.generator = generator
-        self.criterion = criterion
-        self.scheduler = scheduler
-
-    def __call__(self, x: Tensor, y: Tensor, norm: float):
-        x = self.generator(x)
-        loss = self.criterion(
-            x.reshape(-1, x.size(-1)),
-            y.reshape(-1)
-        ) / norm
-
-        if loss.requires_grad:
-            loss.backward()
-
-        if self.scheduler is not None:
-            self.scheduler.step()
-            self.scheduler.optimizer.zero_grad()
-
-        return loss.item() * norm
 
 
 class LabelSmoothing(nn.Module):
@@ -99,3 +77,26 @@ def get_standard_optimizer(model: EncoderDecoder):
         n_warmup_steps=4000,
         optimizer=optimizer
     )
+
+
+class SimpleLoss(object):
+    def __init__(self, generator, criterion, scheduler: Optional[NoamOpt] = None):
+        self.generator = generator
+        self.criterion = criterion
+        self.scheduler = scheduler
+
+    def __call__(self, x: Tensor, y: Tensor, norm: float):
+        x = self.generator(x)
+        loss = self.criterion(
+            x.reshape(-1, x.size(-1)),
+            y.reshape(-1)
+        ) / norm
+
+        if loss.requires_grad:
+            loss.backward()
+
+        if self.scheduler is not None:
+            self.scheduler.step()
+            self.scheduler.optimizer.zero_grad()
+
+        return loss.item() * norm
