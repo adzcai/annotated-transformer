@@ -125,7 +125,7 @@ class LabelSmoothing(nn.Module):
         assert x.size(1) == self.n_classes
 
         true_dist = torch.ones_like(x).detach() * self.smoothing / (self.n_classes - 2)
-        true_dist.scatter_(dim=1, index=target.unsqueeze(1), src=self.confidence)
+        true_dist.scatter_(dim=1, index=target.unsqueeze(1), value=self.confidence)
         true_dist[:, self.padding_idx] = 0
         mask = torch.nonzero(target == self.padding_idx)
         if mask.dim() > 0:  # nonempty

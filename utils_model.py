@@ -1,3 +1,4 @@
+from typing import Optional
 import math
 from copy import deepcopy
 import torch
@@ -79,7 +80,7 @@ class Embeddings(nn.Module):
 
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model: int, p_dropout: float, n_ctx=4096):
+    def __init__(self, d_model: int, p_dropout: Optional[float] = 0, n_ctx=4096):
         super(PositionalEncoding, self).__init__()
 
         self.dropout = nn.Dropout(p_dropout)

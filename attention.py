@@ -73,4 +73,8 @@ class MultiHeadedAttention(nn.Module):
         x = (x.transpose(1, 2)
              .reshape(n_batches, -1, self.h * self.d_key))
 
+        del query
+        del key
+        del value
+
         return self.w_output(x)
