@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from copy import deepcopy as c
+from dataclasses import dataclass
 
 from attention import MultiHeadedAttention
 from decoder import DecoderLayer, Decoder
@@ -71,29 +72,36 @@ class Generator(nn.Module):
         return torch.log_softmax(logits, dim=-1)
 
 
-def make_model(n_src_vocab: int,
-               n_tgt_vocab: int,
-               n_layers=6,
-               d_model=512,
-               d_ff=2048,
-               n_heads=8,
-               p_dropout=0.1):
-    attn = MultiHeadedAttention(n_heads, d_model, p_dropout)
-    ff = FeedForward(d_model, d_ff, p_dropout)
-    pe = PositionalEncoding(d_model, p_dropout)
+@dataclass
+class ModelConfig(object):
+    
+    n_src_vocab: int
+    n_tgt_vocab: int
+    n_layers: int = 6
+    d_model: int = 512
+    d_ff: int = 2048
+    n_heads: int = 8
+    p_dropout: float = 0.1
+    pad_token: int = 2
 
-    encoder_layer = EncoderLayer(d_model, c(attn), c(ff), p_dropout)
-    encoder = Encoder(encoder_layer, n_layers)
+    
+def make_model(cfg: ModelConfig):
+    attn = MultiHeadedAttention(cfg.n_heads, cfg.d_model, cfg.p_dropout)
+    ff = FeedForward(cfg.d_model, cfg.d_ff, cfg.p_dropout)
+    pe = PositionalEncoding(cfg.d_model, cfg.p_dropout)
 
-    decoder_layer = DecoderLayer(d_model, c(attn), c(attn), c(ff), p_dropout)
-    decoder = Decoder(decoder_layer, n_layers)
+    encoder_layer = EncoderLayer(cfg.d_model, c(attn), c(ff), cfg.p_dropout)
+    encoder = Encoder(encoder_layer, cfg.n_layers)
+
+    decoder_layer = DecoderLayer(cfg.d_model, c(attn), c(attn), c(ff), cfg.p_dropout)
+    decoder = Decoder(decoder_layer, cfg.n_layers)
 
     src_embed, tgt_embed = [
-        nn.Sequential(Embeddings(d_model, n_vocab), c(pe))
-        for n_vocab in (n_src_vocab, n_tgt_vocab)
+        nn.Sequential(Embeddings(cfg.d_model, n_vocab), c(pe))
+        for n_vocab in (cfg.n_src_vocab, cfg.n_tgt_vocab)
     ]
 
-    generator = Generator(d_model, n_tgt_vocab)
+    generator = Generator(cfg.d_model, cfg.n_tgt_vocab)
 
     model = EncoderDecoder(encoder, decoder, src_embed, tgt_embed, generator)
 
@@ -102,3 +110,4 @@ def make_model(n_src_vocab: int,
             nn.init.xavier_uniform_(p)
 
     return model
+

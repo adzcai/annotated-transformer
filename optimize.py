@@ -2,7 +2,7 @@ from typing import Optional
 import torch
 from torch import Tensor
 import torch.nn as nn
-
+from torch.optim.lr_scheduler import LambdaLR
 
 class LabelSmoothing(nn.Module):
     """
@@ -39,64 +39,67 @@ class LabelSmoothing(nn.Module):
         return self.criterion(x, true_dist)
 
 
-class NoamOpt(object):
-    """Learning rate scheduler."""
-
-    def __init__(self, d_model: int, factor: float, n_warmup_steps: int, optimizer):
-        self.d_model = d_model
-        self.factor = factor
-        self.warmup = n_warmup_steps
-        self.optimizer = optimizer
-
-        self._step = 0
-        self._rate = 0
-
+class DummyOptimizer(torch.optim.Optimizer):
+    def __init__(self):
+        super(torch.optim.Optimizer, self).__init__()
+        
+        self.param_groups = [{ "lr": 0 }]
+    
     def step(self):
-        self._step += 1
-        rate = self.rate()
-        for p in self.optimizer.param_groups:
-            p['lr'] = rate
-        self._rate = rate
-        self.optimizer.step()
+        pass
+    
+    def zero_grad(self, set_to_none=False):
+        pass
 
-    def rate(self, step=None):
-        if step is None:
-            step = self._step
+class DummyScheduler(object):
+    def step(self):
+        pass
+    
 
-        return (self.factor * (
-                self.d_model ** (-.5)
-                * min(step ** (-.5), step * self.warmup ** (-1.5))
-        ))
+def get_lr(step: int, d_model: int, scale: float, n_warmup_steps: int):
+    """
+    Set 0th step to equal 1st step to avoid division by 0 in LambdaLR.
+    """
+    if step == 0:
+        step = 1
+    lr = d_model ** (-0.5) * min(step ** (-0.5), step * n_warmup_steps ** (-1.5))
+    return scale * lr
 
 
-def get_standard_optimizer(model: EncoderDecoder):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9)
-    return NoamOpt(
-        model.src_embed[0].d_model,
-        factor=2,
-        n_warmup_steps=4000,
-        optimizer=optimizer
-    )
+def get_scheduler(model: nn.Module, d_model=None, scale=1., n_warmup_steps=400, lr=.5):
+    """
+    :return: The Adam optimizer and the LambdaLR scheduler
+    """
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(0.9, 0.98), eps=1e-9)
+
+    if d_model is None:
+        d_model = model.src_embed[0].d_model
+    
+    def lr_lambda(step: int):
+        return get_lr(step, d_model, scale, n_warmup_steps)
+    
+    return optimizer, LambdaLR(optimizer=optimizer, lr_lambda=lr_lambda)
 
 
 class SimpleLoss(object):
-    def __init__(self, generator, criterion, scheduler: Optional[NoamOpt] = None):
+    """A simple function for computing the loss."""
+    
+    def __init__(self, generator, criterion):
         self.generator = generator
         self.criterion = criterion
-        self.scheduler = scheduler
 
-    def __call__(self, x: Tensor, y: Tensor, norm: float):
+    def __call__(self, x: Tensor, y: Tensor):
+        """
+        :param x: A Tensor of shape (batch, sequence, vocab).
+        :param y: The Tensor containing the true tokens. A tensor of shape (batch, sequence).
+        :param norm: The number of "items" (ie tokens) that this loss should be distributed over.
+        :return: The total summed loss across all of the items.
+        """
         x = self.generator(x)
+        
         loss = self.criterion(
             x.reshape(-1, x.size(-1)),
             y.reshape(-1)
-        ) / norm
+        )
 
-        if loss.requires_grad:
-            loss.backward()
-
-        if self.scheduler is not None:
-            self.scheduler.step()
-            self.scheduler.optimizer.zero_grad()
-
-        return loss.item() * norm
+        return loss
