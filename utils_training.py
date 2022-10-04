@@ -1,7 +1,9 @@
-from typing import Optional
+from typing import Optional, List, Tuple
 
 import torch
-from torch import Tensor, nn
+from torch import Tensor
+import torch.nn as nn
+from torch.nn.functional import pad
 
 from transformer import EncoderDecoder
 from utils_model import subsequent_mask
@@ -58,99 +60,45 @@ def batch_size_fn(new_batch: Batch, count: int, so_far: int):
     return max(src_elements, tgt_elements)
 
 
-class NoamOpt(object):
-    """Learning rate scheduler."""
+def transform_text(text, tokenize, vocab, device, n_ctx=2048, bos_token=0, eos_token=1, pad_token=2):
+    """transform input sentences to include metadata tokens"""
+    bos_token, eos_token = [torch.tensor([token], device=device) for token in (bos_token, eos_token)]
+    src = torch.tensor(vocab(tokenize(text)), dtype=torch.long, device=device)
+    wrapped = torch.cat([bos_token, src, eos_token], dim=0)
+    return pad(wrapped, (0, n_ctx - len(wrapped)), value=pad_token)
+    
 
-    def __init__(self, d_model: int, factor, n_warmup_steps, optimizer):
-        self.d_model = d_model
-        self.factor = factor
-        self.warmup = n_warmup_steps
-        self.optimizer = optimizer
-
-        self._step = 0
-        self._rate = 0
-
-    def step(self):
-        self._step += 1
-        rate = self.rate()
-        for p in self.optimizer.param_groups:
-            p['lr'] = rate
-        self._rate = rate
-        self.optimizer.step()
-
-    def rate(self, step=None):
-        if step is None:
-            step = self._step
-
-        return (self.factor * (
-                self.d_model ** (-.5)
-                * min(step ** (-.5), step * self.warmup ** (-1.5))
-        ))
+def collate_batch(batch: List[Tuple[str, str]],
+                  src_tokenize,
+                  tgt_tokenize,
+                  src_vocab,
+                  tgt_vocab,
+                  device,
+                  n_ctx=2048,
+                  eos_token=0,
+                  bos_token=1,
+                  pad_token=2):
+    src_list, tgt_list = zip([
+        (
+            transform_text(src, src_tokenize, src_vocab, device, n_ctx, bos_token, eos_token, pad_token),
+            transform_text(tgt, tgt_tokenize, tgt_vocab, device, n_ctx, bos_token, eos_token, pad_token)
+        )
+        for src, tgt in batch
+    ])
+    
+    return torch.stack(src_list, tgt_list)
 
 
-def get_standard_optimizer(model: EncoderDecoder):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9)
-    return NoamOpt(
-        model.src_embed[0].d_model,
-        factor=2,
-        n_warmup_steps=4000,
-        optimizer=optimizer
+def get_loader(iter_data, batch_size, collate_fn, is_distributed=True):
+    """Change the iterable-style Dataset to a map-style one since DistributedSampler requires a length"""
+    data_map = to_map_style_dataset(iter_data)
+    sampler = DistributedSampler(data_map) if is_distributed else None
+    
+    DataLoader(
+        data_map,
+        batch_size,
+        shuffle=(sampler is None),
+        sampler=sampler,
+        collate_fn=collate_fn
     )
-
-
-class LabelSmoothing(nn.Module):
-    """
-    Penalize the model for being overconfident.
-    """
-
-    def __init__(self, n_classes: int, padding_idx: int, smoothing=0.):
-        super(LabelSmoothing, self).__init__()
-
-        self.criterion = nn.KLDivLoss(reduction="sum")
-        self.padding_idx = padding_idx
-        self.confidence = 1. - smoothing
-        self.smoothing = smoothing
-        self.n_classes = n_classes
-        self.true_dist = None
-
-    def forward(self, x: Tensor, target: Tensor):
-        """
-        Use some tricky PyTorch to distribute the confidence evenly.
-
-        :param x: a Tensor of shape (batch, class)
-        :param target:
-        :return:
-        """
-        assert x.size(1) == self.n_classes
-
-        true_dist = torch.ones_like(x).detach() * self.smoothing / (self.n_classes - 2)
-        true_dist.scatter_(dim=1, index=target.unsqueeze(1), value=self.confidence)
-        true_dist[:, self.padding_idx] = 0
-        mask = torch.nonzero(target == self.padding_idx)
-        if mask.dim() > 0:  # nonempty
-            true_dist.index_fill_(0, mask.squeeze(), 0.)
-        self.true_dist = true_dist
-        return self.criterion(x, true_dist)
-
-
-class SimpleLoss(object):
-    def __init__(self, generator, criterion, scheduler: Optional[NoamOpt] = None):
-        self.generator = generator
-        self.criterion = criterion
-        self.scheduler = scheduler
-
-    def __call__(self, x: Tensor, y: Tensor, norm: float):
-        x = self.generator(x)
-        loss = self.criterion(
-            x.reshape(-1, x.size(-1)),
-            y.reshape(-1)
-        ) / norm
-
-        if loss.requires_grad:
-            loss.backward()
-
-        if self.scheduler is not None:
-            self.scheduler.step()
-            self.scheduler.optimizer.zero_grad()
-
-        return loss.item() * norm
+    return data_map
