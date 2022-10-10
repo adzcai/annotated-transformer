@@ -1,12 +1,14 @@
 from dataclasses import dataclass
-from typing import Callable, Tuple, Sequence
-import time, os
+from typing import Callable, Tuple, Sequence, Optional
+import GPUtil, time, os
 
 import torch
 from torch import Tensor
 from torch import nn
 from torch.utils.data import DataLoader
 import torch.multiprocessing as mp
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from architecture.transformer import make_model, ModelConfig
 from preprocess import Batch, create_loaders, get_tokenizer, Vocabulary
@@ -45,7 +47,8 @@ def run_epoch(data_loader: Sequence[Batch],
               mode="train",
               accum_interval=1,
               log_interval=50,
-              train_state=TrainState()):
+              train_state=TrainState(),
+              desc: Optional[str] = None):
     """
     :param data_loader:
     :param model:          The model to train. Assumes it is already in proper train / eval mode.
@@ -60,6 +63,7 @@ def run_epoch(data_loader: Sequence[Batch],
                            accumulation steps, samples, and tokens.
     """
     start_time = time.time()
+    desc = desc + ' ' if desc is not None else ''
     total_tokens = 0
     total_loss = 0
     running_tokens = 0
@@ -93,7 +97,7 @@ def run_epoch(data_loader: Sequence[Batch],
             lr = optimizer.param_groups[0]["lr"]
             elapsed = time.time() - start_time
 
-            print(f"Epoch step: {i + 1} | "
+            print(f"{desc}Epoch step: {i + 1} | "
                   + f"Accumulation step: {n_accum} | "
                   + f"Loss (per token): {loss_per_token.item():.3f} | "
                   + f"Tokens per sec: {(running_tokens / elapsed):.3f} | "
@@ -158,7 +162,7 @@ def train_worker(gpu: int,
     
     def save_if_main(suffix: str):
         if is_main_process:
-            file_path = file_prefix + suffix + ".pt"
+            file_path = train_config.file_prefix + suffix + ".pt"
             torch.save(module.state_dict(), file_path)
             print(f"Saved checkpoint to {file_path}")
     
@@ -189,7 +193,8 @@ def train_worker(gpu: int,
             scheduler,
             mode="train",
             accum_interval=train_config.accum_interval,
-            train_state=train_state
+            train_state=train_state,
+            desc=f"[GPU {gpu}]"
         )
         
         GPUtil.showUtilization()
@@ -209,7 +214,8 @@ def train_worker(gpu: int,
                 batch_generator(valid_loader),
                 model,
                 loss_fn,
-                mode="eval"
+                mode="eval",
+                desc=f"[GPU {gpu}]"
             )
 
         print(f"Average loss per token: {loss_per_token}")

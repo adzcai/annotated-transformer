@@ -7,22 +7,24 @@ import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
 
+default_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 def clones(module: nn.Module, n: int):
     return nn.ModuleList([deepcopy(module) for _ in range(n)])
 
 
-def subsequent_mask(n_ctx: int) -> torch.BoolTensor:
+def subsequent_mask(n_ctx: int, device=default_device) -> torch.BoolTensor:
     """Returns 'True' in the entries where the model is allowed to pay attention."""
     attn_shape = (1, n_ctx, n_ctx)
-    return torch.tril(torch.ones(attn_shape, dtype=torch.bool))
+    return torch.tril(torch.ones(attn_shape, dtype=torch.bool, device=device))
 
 
 class LayerNorm(nn.Module):
     """Estimates the mean and standard deviation of a layer's outputs."""
 
     def __init__(self, d_layer: int, eps=1e-6):
-        super(LayerNorm, self).__init__()
+        super().__init__()
 
         self.mean_hat = nn.Parameter(torch.zeros(d_layer))
         self.std_hat = nn.Parameter(torch.ones(d_layer))
@@ -37,7 +39,7 @@ class LayerNorm(nn.Module):
 
 class SublayerConnection(nn.Module):
     def __init__(self, d_layer: int, p_dropout: float):
-        super(SublayerConnection, self).__init__()
+        super().__init__()
 
         self.layer_norm = LayerNorm(d_layer)
         self.dropout = nn.Dropout(p_dropout)
@@ -56,7 +58,7 @@ class SublayerConnection(nn.Module):
 
 class FeedForward(nn.Module):
     def __init__(self, d_model: int, d_ff: int, p_dropout=0.1):
-        super(FeedForward, self).__init__()
+        super().__init__()
 
         self.w_1 = nn.Linear(d_model, d_ff)
         self.w_2 = nn.Linear(d_ff, d_model)
@@ -70,7 +72,7 @@ class FeedForward(nn.Module):
 
 class Embeddings(nn.Module):
     def __init__(self, d_model: int, n_vocab: int):
-        super(Embeddings, self).__init__()
+        super().__init__()
 
         self.lookup_table = nn.Embedding(n_vocab, d_model)
         self.d_model = d_model
@@ -86,7 +88,7 @@ class PositionalEncoding(nn.Module):
     """Add a fixed positional encoding to give the model information about token ordering."""
     
     def __init__(self, d_model: int, p_dropout: Optional[float] = 0, n_ctx=4096):
-        super(PositionalEncoding, self).__init__()
+        super().__init__()
 
         self.dropout = nn.Dropout(p_dropout)
         pe = get_fixed_positional_embeddings(d_model, n_ctx).detach()  # we don't want these to update

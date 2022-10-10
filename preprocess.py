@@ -1,11 +1,14 @@
 # Handles data preprocessing and batching.
 
 from typing import Optional, List, Tuple, Callable
+import os
+from tqdm import tqdm
 
 import torch
 from torch import Tensor
 import torch.nn as nn
 from torch.nn.functional import pad
+
 from torch.utils.data import IterableDataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torchtext.vocab import build_vocab_from_iterator
@@ -14,9 +17,6 @@ import torchtext.datasets as datasets
 
 from architecture.transformer import EncoderDecoder
 from architecture.utils import subsequent_mask
-
-import os
-
 
 global max_src_in_batch, max_tgt_in_batch
 
@@ -156,7 +156,7 @@ class Batch(object):
         """
 
         tgt_mask = (tgt != pad_token).unsqueeze(-2)  # add the batch dimension
-        tgt_mask = tgt_mask & subsequent_mask(tgt.size(-1))
+        tgt_mask = tgt_mask & subsequent_mask(tgt.size(-1), device=tgt.device)
         return tgt_mask
 
 
@@ -232,5 +232,4 @@ def collate_batch(batch: List[Tuple[str, str]],
         tgt_list.append(closure(tgt_text, tgt_tokenize, tgt_vocab))
     
     src, tgt = torch.stack(src_list), torch.stack(tgt_list)
-    print(f"Batch device: {src.device}")
     return src, tgt
