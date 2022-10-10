@@ -8,8 +8,8 @@ from torch import nn
 from torch.utils.data import DataLoader
 import torch.multiprocessing as mp
 
-from transformer import make_model, ModelConfig
-from preprocess import Batch, create_loaders, get_tokenizer
+from architecture.transformer import make_model, ModelConfig
+from preprocess import Batch, create_loaders, get_tokenizer, Vocabulary
 from optimize import SimpleLoss, get_scheduler, LabelSmoothing
 
 
@@ -35,28 +35,29 @@ class TrainingConfig(object):
     n_ctx: int
     n_warmup_steps: int
     file_prefix: str
-    
-    
+
+
 def run_epoch(data_loader: Sequence[Batch],
               model: nn.Module,
               loss_compute: Callable[[Tensor, Tensor, int], Tuple[Tensor, Tensor]],
               optimizer: torch.optim.Optimizer,
               scheduler: torch.optim.lr_scheduler.LambdaLR,
-              mode = "train",
+              mode="train",
               accum_interval=1,
               log_interval=50,
               train_state=TrainState()):
     """
     :param data_loader:
-    :param model:
-    :param loss_compute: Calculates the loss from the model's output logits and the target labels.
-                         Returns the total loss across all the tokens and the normed loss.
-    :param optimizer: The optimizer for updating the model parameters.
-    :param scheduler: The learning rate scheduler.
-    :param mode: "train" to train the model, "eval" to only run evaluation.
+    :param model:          The model to train. Assumes it is already in proper train / eval mode.
+    :param loss_compute:   Calculates the loss from the model's output logits and the target labels.
+                           Returns the total loss across all the tokens and the normed loss.
+    :param optimizer:      The optimizer for updating the model parameters.
+    :param scheduler:      The learning rate scheduler.
+    :param mode:           "train" to train the model, "eval" to only run evaluation.
     :param accum_interval: The number of gradients to accumulate before running the optimizer to update the model weights.
-    :param log_interval: The number of timesteps to iterate between logging.
-    :return: the average loss per token and the train state containing the number of steps, accumulation steps, samples, and tokens.
+    :param log_interval:   The number of timesteps to iterate between logging.
+    :return:               The average loss per token and the train state containing the number of steps,
+                           accumulation steps, samples, and tokens.
     """
     start_time = time.time()
     total_tokens = 0
@@ -88,7 +89,7 @@ def run_epoch(data_loader: Sequence[Batch],
         total_tokens += batch.n_tokens
         running_tokens += batch.n_tokens
         
-        if i % log_interval == 0 and mode == "train":
+        if i % log_interval == log_interval - 1 and mode == "train":
             lr = optimizer.param_groups[0]["lr"]
             elapsed = time.time() - start_time
 
@@ -109,14 +110,17 @@ def run_epoch(data_loader: Sequence[Batch],
 
 def train_worker(gpu: int,
                  n_gpus_per_node: int,
-                 vocab_src,
-                 vocab_tgt,
+                 vocab_src: Vocabulary,
+                 vocab_tgt: Vocabulary,
                  spacy_src,
                  spacy_tgt,
                  model_config: ModelConfig,
                  train_config: TrainingConfig,
                  is_distributed=False):
-    """Training process for a single GPU."""
+    """
+    Training process for a single GPU.
+    The source and target vocab lengths in the model config should match the ones provided here.
+    """
     
     print(f"Training using GPU {gpu}")
 
@@ -132,7 +136,9 @@ def train_worker(gpu: int,
         module = model
         is_main_process = True
     
-    criterion = LabelSmoothing(n_classes=len(vocab_tgt), padding_idx=model_config.pad_token, smoothing=.1)
+    criterion = LabelSmoothing(n_classes=len(vocab_tgt),
+                               padding_idx=model_config.pad_token,
+                               smoothing=.1)
     criterion.cuda(gpu)
     
     train_loader, valid_loader = create_loaders(
@@ -146,7 +152,7 @@ def train_worker(gpu: int,
         is_distributed=is_distributed
     )
     
-    def batch_generator(loader):
+    def batch_generator(loader: DataLoader):
         for src, tgt in loader:
             yield Batch(src, tgt, model_config.pad_token)
     
@@ -154,6 +160,7 @@ def train_worker(gpu: int,
         if is_main_process:
             file_path = file_prefix + suffix + ".pt"
             torch.save(module.state_dict(), file_path)
+            print(f"Saved checkpoint to {file_path}")
     
     loss_fn = SimpleLoss(module.generator, criterion)
     optimizer, scheduler = get_scheduler(model,
@@ -241,13 +248,26 @@ def train_distributed_model(vocab_src, vocab_tgt, spacy_src, spacy_tgt, model_co
 
 def train_model(vocab_src, vocab_tgt, spacy_src, spacy_tgt, model_cfg: ModelConfig, train_cfg: TrainingConfig):
     if train_cfg.distributed:
-        train_distributed_model(vocab_src, vocab_tgt, spacy_src, spacy_tgt, model_cfg, train_cfg)
+        train_distributed_model(vocab_src,
+                                vocab_tgt,
+                                spacy_src,
+                                spacy_tgt,
+                                model_cfg,
+                                train_cfg)
     else:
-        train_worker(0, 1, vocab_src, vocab_tgt, spacy_src, spacy_tgt, model_cfg, train_cfg, False)
-    
+        train_worker(0,  # gpu
+                     1,  # n_gpus_per_node
+                     vocab_src,
+                     vocab_tgt,
+                     spacy_src,
+                     spacy_tgt,
+                     model_cfg,
+                     train_cfg,
+                     False)
 
-def data_gen(n_vocab: int, batch_size: int, n_batches: int):
-    for i in range(n_batches):
-        data = torch.randint(1, n_vocab, size=(batch_size, 10)).detach()
-        data[:, 0] = 1
-        yield Batch(src=data.clone(), tgt=data.clone(), pad_token=0)
+
+def ensemble(model, models):
+    """Merge past models into the given model"""
+    params = [m.params() for m in [model] + models]
+    for ps in zip(*params):
+        ps[0].copy_(torch.sum(*ps[1:]) / len(ps[1:]))

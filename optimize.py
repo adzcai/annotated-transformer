@@ -1,3 +1,5 @@
+# Optimization criteria and training.
+
 from typing import Optional
 import torch
 from torch import Tensor
@@ -6,10 +8,14 @@ from torch.optim.lr_scheduler import LambdaLR
 
 class LabelSmoothing(nn.Module):
     """
-    Penalize the model for being overconfident.
+    Label smoothing penalizes the model for being overconfident.
     """
 
     def __init__(self, n_classes: int, padding_idx: int, smoothing=0.):
+        """
+        :param smoothing: The model's confidence in the correct model will be the complement of this.
+                          That is, the higher it is, the lower the model's confidence in the correct class.
+        """
         super(LabelSmoothing, self).__init__()
 
         self.criterion = nn.KLDivLoss(reduction="sum")
@@ -32,6 +38,7 @@ class LabelSmoothing(nn.Module):
         true_dist = torch.ones_like(x).detach() * self.smoothing / (self.n_classes - 2)
         true_dist.scatter_(dim=1, index=target.unsqueeze(1), value=self.confidence)
         true_dist[:, self.padding_idx] = 0
+        
         mask = torch.nonzero(target == self.padding_idx)
         if mask.dim() > 0:  # nonempty
             true_dist.index_fill_(0, mask.squeeze(), 0.)
@@ -58,7 +65,8 @@ class DummyScheduler(object):
 
 def get_lr(step: int, d_model: int, scale: float, n_warmup_steps: int):
     """
-    Set 0th step to equal 1st step to avoid division by 0 in LambdaLR.
+    Gets the learning rate at the given step.
+    Set 0th step to 1st step to avoid division by 0 in LambdaLR.
     """
     if step == 0:
         step = 1
@@ -68,7 +76,7 @@ def get_lr(step: int, d_model: int, scale: float, n_warmup_steps: int):
 
 def get_scheduler(model: nn.Module, d_model=None, scale=1., n_warmup_steps=400, lr=.5):
     """
-    :return: The Adam optimizer and the LambdaLR scheduler
+    :return: The default Adam optimizer and the LambdaLR scheduler
     """
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, betas=(0.9, 0.98), eps=1e-9)
 
@@ -78,7 +86,9 @@ def get_scheduler(model: nn.Module, d_model=None, scale=1., n_warmup_steps=400, 
     def lr_lambda(step: int):
         return get_lr(step, d_model, scale, n_warmup_steps)
     
-    return optimizer, LambdaLR(optimizer=optimizer, lr_lambda=lr_lambda)
+    scheduler = LambdaLR(optimizer=optimizer, lr_lambda=lr_lambda)
+    
+    return optimizer, scheduler
 
 
 class SimpleLoss(object):
@@ -88,12 +98,12 @@ class SimpleLoss(object):
         self.generator = generator
         self.criterion = criterion
 
-    def __call__(self, x: Tensor, y: Tensor):
+    def __call__(self, x: Tensor, y: Tensor) -> Tensor:
         """
-        :param x: A Tensor of shape (batch, sequence, vocab).
-        :param y: The Tensor containing the true tokens. A tensor of shape (batch, sequence).
+        :param x:    A Tensor of shape (batch, sequence, vocab).
+        :param y:    The Tensor containing the true tokens. A tensor of shape (batch, sequence).
         :param norm: The number of "items" (ie tokens) that this loss should be distributed over.
-        :return: The total summed loss across all of the items.
+        :return:     The total summed loss across all of the items.
         """
         x = self.generator(x)
         
