@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Callable, Tuple, Sequence, Optional
 import GPUtil, time, os
+from pathlib import Path
 
 import torch
 from torch import Tensor
@@ -12,7 +13,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from architecture.transformer import make_model, ModelConfig
 from preprocess import Batch, create_loaders, get_tokenizer, Vocabulary
-from optimize import SimpleLoss, get_scheduler, LabelSmoothing
+from optimize import SimpleLoss, get_scheduler, LabelSmoothing, DummyOptimizer, DummyScheduler
 
 
 @dataclass
@@ -42,8 +43,8 @@ class TrainingConfig(object):
 def run_epoch(data_loader: Sequence[Batch],
               model: nn.Module,
               loss_compute: Callable[[Tensor, Tensor, int], Tuple[Tensor, Tensor]],
-              optimizer: torch.optim.Optimizer,
-              scheduler: torch.optim.lr_scheduler.LambdaLR,
+              optimizer: Optional[torch.optim.Optimizer] = None,
+              scheduler: Optional[torch.optim.lr_scheduler.LambdaLR] = None,
               mode="train",
               accum_interval=1,
               log_interval=50,
@@ -68,6 +69,11 @@ def run_epoch(data_loader: Sequence[Batch],
     total_loss = 0
     running_tokens = 0
     n_accum = 0
+    
+    if optimizer is None:
+        optimizer = DummyOptimizer()
+    if scheduler is None:
+        scheduler = DummyScheduler()
 
     for i, batch in enumerate(data_loader):
         out = model(batch.src, batch.tgt, batch.src_mask, batch.tgt_mask)
@@ -162,7 +168,8 @@ def train_worker(gpu: int,
     
     def save_if_main(suffix: str):
         if is_main_process:
-            file_path = train_config.file_prefix + suffix + ".pt"
+            file_path = Path(train_config.file_prefix + suffix + ".pt")
+            file_path.parent.mkdir(parents=True, exist_ok=True)
             torch.save(module.state_dict(), file_path)
             print(f"Saved checkpoint to {file_path}")
     
