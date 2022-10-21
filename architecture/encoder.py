@@ -8,9 +8,7 @@ from .utils import clones, LayerNorm, SublayerConnection
 class Encoder(nn.Module):
     """Just a stack of encoder layers followed by a layer norm."""
 
-    def __init__(self,
-                 layer_module: nn.Module,
-                 n_layers: int):
+    def __init__(self, layer_module: nn.Module, n_layers: int):
         super(Encoder, self).__init__()
 
         self.layers = clones(layer_module, n_layers)
@@ -25,12 +23,14 @@ class Encoder(nn.Module):
 
 class EncoderLayer(nn.Module):
     """A pair of sub-layers: a self-attention layer and a feed-forward layer."""
-    
-    def __init__(self,
-                 d_layer: int,
-                 self_attn: AttentionFunction,
-                 feed_forward: nn.Module,
-                 p_dropout: float):
+
+    def __init__(
+        self,
+        d_layer: int,
+        self_attn: AttentionFunction,
+        feed_forward: nn.Module,
+        p_dropout: float,
+    ):
         super(EncoderLayer, self).__init__()
 
         self.d_layer = d_layer

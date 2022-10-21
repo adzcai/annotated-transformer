@@ -6,12 +6,13 @@ from torch import Tensor
 import torch.nn as nn
 from torch.optim.lr_scheduler import LambdaLR
 
+
 class LabelSmoothing(nn.Module):
     """
     Label smoothing penalizes the model for being overconfident.
     """
 
-    def __init__(self, n_classes: int, padding_idx: int, smoothing=0.):
+    def __init__(self, n_classes: int, padding_idx: int, smoothing=0.0):
         """
         :param smoothing: The model's confidence in the correct model will be the complement of this.
                           That is, the higher it is, the lower the model's confidence in the correct class.
@@ -20,7 +21,7 @@ class LabelSmoothing(nn.Module):
 
         self.criterion = nn.KLDivLoss(reduction="sum")
         self.padding_idx = padding_idx
-        self.confidence = 1. - smoothing
+        self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
         self.n_classes = n_classes
         self.true_dist = None
@@ -38,10 +39,10 @@ class LabelSmoothing(nn.Module):
         true_dist = torch.ones_like(x).detach() * self.smoothing / (self.n_classes - 2)
         true_dist.scatter_(dim=1, index=target.unsqueeze(1), value=self.confidence)
         true_dist[:, self.padding_idx] = 0
-        
+
         mask = torch.nonzero(target == self.padding_idx)
         if mask.dim() > 0:  # nonempty
-            true_dist.index_fill_(0, mask.squeeze(), 0.)
+            true_dist.index_fill_(0, mask.squeeze(), 0.0)
         self.true_dist = true_dist
         return self.criterion(x, true_dist)
 
@@ -49,24 +50,25 @@ class LabelSmoothing(nn.Module):
 class DummyOptimizer(torch.optim.Optimizer):
     def __init__(self):
         super(torch.optim.Optimizer, self).__init__()
-        
-        self.param_groups = [{ "lr": 0 }]
-    
+
+        self.param_groups = [{"lr": 0}]
+
     def step(self):
         pass
-    
+
     def zero_grad(self, set_to_none=False):
         pass
+
 
 class DummyScheduler(object):
     def step(self):
         pass
-    
+
 
 def get_lr(step: int, d_model: int, scale: float, n_warmup_steps: int):
     """
     Gets the learning rate at the given step.
-    Set 0th step to 1st step to avoid division by 0 in LambdaLR.
+    Set 0th step to be equal to the 1st step to avoid division by 0 in LambdaLR.
     """
     if step == 0:
         step = 1
@@ -74,7 +76,9 @@ def get_lr(step: int, d_model: int, scale: float, n_warmup_steps: int):
     return scale * lr
 
 
-def get_scheduler(model: nn.Module, d_model=None, scale=1., n_warmup_steps=400, lr=.5):
+def get_scheduler(
+    model: nn.Module, d_model=None, scale=1.0, n_warmup_steps=400, lr=0.5
+):
     """
     :return: The default Adam optimizer and the LambdaLR scheduler
     """
@@ -82,18 +86,18 @@ def get_scheduler(model: nn.Module, d_model=None, scale=1., n_warmup_steps=400, 
 
     if d_model is None:
         d_model = model.src_embed[0].d_model
-    
+
     def lr_lambda(step: int):
         return get_lr(step, d_model, scale, n_warmup_steps)
-    
+
     scheduler = LambdaLR(optimizer=optimizer, lr_lambda=lr_lambda)
-    
+
     return optimizer, scheduler
 
 
 class SimpleLoss(object):
     """A simple function for computing the loss."""
-    
+
     def __init__(self, generator, criterion):
         self.generator = generator
         self.criterion = criterion
@@ -106,10 +110,7 @@ class SimpleLoss(object):
         :return:     The total summed loss across all of the items.
         """
         x = self.generator(x)
-        
-        loss = self.criterion(
-            x.reshape(-1, x.size(-1)),
-            y.reshape(-1)
-        )
+
+        loss = self.criterion(x.reshape(-1, x.size(-1)), y.reshape(-1))
 
         return loss

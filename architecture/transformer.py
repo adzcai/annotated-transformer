@@ -6,14 +6,22 @@ from dataclasses import dataclass
 from .attention import MultiHeadedAttention
 from .decoder import DecoderLayer, Decoder
 from .encoder import Encoder, EncoderLayer
-from .utils import clones, subsequent_mask, LayerNorm, SublayerConnection, FeedForward, PositionalEncoding, Embeddings
+from .utils import (
+    clones,
+    subsequent_mask,
+    LayerNorm,
+    SublayerConnection,
+    FeedForward,
+    PositionalEncoding,
+    Embeddings,
+)
 
 
 class EncoderDecoder(nn.Module):
     """
     The encoder and decoder stacks of the Transformer.
     """
-    
+
     def __init__(self, encoder, decoder, src_embed, tgt_embed, generator):
         super(EncoderDecoder, self).__init__()
 
@@ -32,41 +40,34 @@ class EncoderDecoder(nn.Module):
         """Decode the input using the masked target sequence and the masked outputs of the encoder."""
         tgt_embeds = self.tgt_embed(tgt)
         return self.decoder(encoded, tgt_embeds, src_mask, tgt_mask)
-    
+
     def forward(self, src, tgt, src_mask, tgt_mask):
         encoded = self.encode(src, src_mask)
         return self.decode(encoded, tgt, src_mask, tgt_mask)
-    
+
     def share_embeddings(self):
         """Set the source, target, and generator embedding weights to be the same."""
         weights = self.tgt_embed[0].lut.weight
         self.src_embed[0].lut.weight = weights
         self.generator.lut.weight = weights
-    
+
     def greedy_decode(self, src, src_mask, n_ctx, start_token):
         encoded = self.encode(src, src_mask)
         outputs = torch.ones(1, 1, dtype=src.dtype) * start_token
-        
+
         for i in range(n_ctx - 1):
             tgt_mask = subsequent_mask(outputs.size(1))
-            out = self.decode(
-                encoded,
-                outputs,
-                src_mask,
-                tgt_mask
-            )
-            
+            out = self.decode(encoded, outputs, src_mask, tgt_mask)
+
             probs = self.generator(out[:, -1])
             _, next_word = torch.max(probs, dim=1)  # greedily select next word
             next_word = next_word.item()
-            
-            outputs = torch.cat([
-                outputs,
-                torch.ones(1, 1, dtype=src.dtype) * next_word
-            ], dim=1)
-        
+
+            outputs = torch.cat(
+                [outputs, torch.ones(1, 1, dtype=src.dtype) * next_word], dim=1
+            )
+
         return outputs
-        
 
 
 class Generator(nn.Module):
@@ -82,7 +83,7 @@ class Generator(nn.Module):
 
 @dataclass
 class ModelConfig(object):
-    
+
     n_src_vocab: int
     n_tgt_vocab: int
     n_layers: int = 6
@@ -92,7 +93,7 @@ class ModelConfig(object):
     p_dropout: float = 0.1
     pad_token: int = 2
 
-    
+
 def make_model(cfg: ModelConfig):
     attn = MultiHeadedAttention(cfg.n_heads, cfg.d_model, cfg.p_dropout)
     ff = FeedForward(cfg.d_model, cfg.d_ff, cfg.p_dropout)
@@ -118,4 +119,3 @@ def make_model(cfg: ModelConfig):
             nn.init.xavier_uniform_(p)
 
     return model
-

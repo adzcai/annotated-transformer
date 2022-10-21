@@ -7,7 +7,7 @@ import torch.nn as nn
 from torch import Tensor
 import torch.nn.functional as F
 
-default_device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+default_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def clones(module: nn.Module, n: int):
@@ -86,20 +86,22 @@ class Embeddings(nn.Module):
 
 class PositionalEncoding(nn.Module):
     """Add a fixed positional encoding to give the model information about token ordering."""
-    
+
     def __init__(self, d_model: int, p_dropout: Optional[float] = 0, n_ctx=4096):
         super().__init__()
 
         self.dropout = nn.Dropout(p_dropout)
-        pe = get_fixed_positional_embeddings(d_model, n_ctx).detach()  # we don't want these to update
-        self.register_buffer('pe', pe)
+        pe = get_fixed_positional_embeddings(
+            d_model, n_ctx
+        ).detach()  # we don't want these to update
+        self.register_buffer("pe", pe)
 
     def forward(self, x: Tensor):
         """
         :param x: a Tensor of shape (batch, n_ctx, d_model)
         :return: the Tensor with positional embeddings and dropout added
         """
-        x = x + self.pe[:, :x.size(1)]
+        x = x + self.pe[:, : x.size(1)]
         x = self.dropout(x)
         return x
 
@@ -114,7 +116,7 @@ def get_fixed_positional_embeddings(d_model: int, n_ctx: int):
 
     evens = torch.arange(0, d_model, 2)
     # calculating exponents is faster with exp than pow
-    div_term = torch.exp(evens * (- math.log(10000.) / d_model))
+    div_term = torch.exp(evens * (-math.log(10000.0) / d_model))
     pe[:, 0::2] = torch.sin(position * div_term)
     pe[:, 1::2] = torch.cos(position * div_term)
     pe = pe.unsqueeze(0)  # (1, n_ctx, d_model)

@@ -6,10 +6,7 @@ from .utils import clones, LayerNorm, SublayerConnection
 
 
 class Decoder(nn.Module):
-
-    def __init__(self,
-                 layer_module: nn.Module,
-                 n_layers: int):
+    def __init__(self, layer_module: nn.Module, n_layers: int):
         super(Decoder, self).__init__()
 
         self.layers = clones(layer_module, n_layers)
@@ -22,12 +19,14 @@ class Decoder(nn.Module):
 
 
 class DecoderLayer(nn.Module):
-    def __init__(self,
-                 d_layer: int,
-                 src_attn: AttentionFunction,
-                 self_attn: AttentionFunction,
-                 feed_forward: nn.Module,
-                 p_dropout: float):
+    def __init__(
+        self,
+        d_layer: int,
+        src_attn: AttentionFunction,
+        self_attn: AttentionFunction,
+        feed_forward: nn.Module,
+        p_dropout: float,
+    ):
         super(DecoderLayer, self).__init__()
 
         self.d_layer = d_layer
