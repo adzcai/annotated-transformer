@@ -6,7 +6,6 @@ from tqdm import tqdm
 
 import torch
 from torch import Tensor
-import torch.nn as nn
 from torch.nn.functional import pad
 
 from torch.utils.data import IterableDataset, DataLoader
@@ -15,7 +14,6 @@ from torchtext.vocab import build_vocab_from_iterator
 from torchtext.data.functional import to_map_style_dataset
 import torchtext.datasets as datasets
 
-from architecture.transformer import EncoderDecoder
 from architecture.utils import subsequent_mask
 
 global max_src_in_batch, max_tgt_in_batch
@@ -25,21 +23,27 @@ EOS_TOKEN = "</s>"
 BLANK_WORD = "<blank>"
 UNK_WORD = "<unk>"
 
-Tokenizer = Callable[[str], List[str]]  # splits up a string into string tokens
+# splits up a string into string tokens
+Tokenizer = Callable[[str], List[str]]
+# maps each string token in the list to its index in the vocabulary,
+# like calling map(vocab.index, tokens)
 Vocabulary = Callable[[List[str]], List[int]]
 
 
 def get_tokenizer(spacy) -> Tokenizer:
-    def tokenize(text: str):
+    def tokenize(text: str) -> List[str]:
+        """Splits the text into a list of (string) tokens."""
         return [tok.text for tok in spacy.tokenizer(text)]
 
     return tokenize
 
 
-def build_vocab(spacy_src, spacy_tgt, vocab_path="vocab.pt", force_build=False):
+def build_vocab(
+    spacy_src, spacy_tgt, vocab_path="vocab.pt", force_build=False
+) -> Tuple[Vocabulary, Vocabulary]:
     """
     Build a torchtext vocabulary using the Multi30k dataset.
-    spacy_src and spacy_tgt should be spacy 
+    spacy_src and spacy_tgt should be spacy objects for the source and target languages.
     """
 
     if os.path.exists(vocab_path) and not force_build:
@@ -68,7 +72,7 @@ def build_vocab(spacy_src, spacy_tgt, vocab_path="vocab.pt", force_build=False):
     vocab_tgt.set_default_index(vocab_tgt[UNK_WORD])
 
     torch.save((vocab_src, vocab_tgt), vocab_path)
-    print(f"saved vocab to {vocab_path}")
+    print(f"Saved vocab to {vocab_path}")
 
     return vocab_src, vocab_tgt
 
@@ -78,8 +82,10 @@ def get_loader(
 ):
     """
     Change the iterable-style Dataset to a map-style one since DistributedSampler requires a length.
-    :param batch_size: the number of sequences per batch.
-    :param collate_fn: a function for collating sequences within the batch.
+
+    :param iter_data:      the iterable-style Dataset
+    :param batch_size:     the number of sequences per batch.
+    :param collate_fn:     a function for collating sequences within the batch.
     :param is_distributed: whether to use a distributed sampler.
     """
     data_map = to_map_style_dataset(iter_data)
@@ -103,9 +109,9 @@ def create_loaders(
     batch_size=12000,
     n_ctx=128,
     is_distributed=False,
-):
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
-    Create the PyTorch DataLoaders for the source and target.
+    Create the PyTorch DataLoaders for the source and target from the Multi30k dataset.
     """
 
     def collate_fn(batch):
@@ -123,7 +129,7 @@ def create_loaders(
     train_iter, valid_iter, test_iter = datasets.Multi30k(language_pair=("de", "en"))
     return tuple(
         get_loader(data_iter, batch_size, collate_fn, is_distributed)
-        for data_iter in (train_iter, valid_iter)
+        for data_iter in (train_iter, valid_iter, test_iter)
     )
 
 
@@ -198,7 +204,10 @@ def transform_text(
     eos_token=1,
     pad_token=2,
 ):
-    """Transform input sentences to include metadata tokens."""
+    """
+    Transform input sentences into padded sequences of tokens,
+    including metadata tokens.
+    """
     bos_token, eos_token = [
         torch.tensor([token], device=device) for token in (bos_token, eos_token)
     ]
@@ -211,10 +220,10 @@ def transform_text(
 
 def collate_batch(
     batch: List[Tuple[str, str]],
-    src_tokenize,
-    tgt_tokenize,
-    src_vocab,
-    tgt_vocab,
+    src_tokenize: Tokenizer,
+    tgt_tokenize: Tokenizer,
+    src_vocab: Vocabulary,
+    tgt_vocab: Vocabulary,
     device,
     n_ctx=2048,
     eos_token=0,
@@ -222,7 +231,11 @@ def collate_batch(
     pad_token=2,
 ) -> Tuple[Tensor, Tensor]:
     """
-    :return: The (batch_size, n_ctx) array of tokens for both the source and target batches. 
+    Turn a list of (src, tgt) string pairs into a batch of properly preprocessed sequences of tokens.
+    :param eos_token: the vocab index for the end of sentence token.
+    :param bos_token: the vocab index for the beginning of sentence token.
+    :param pad_token: the vocab index for the padding token.
+    :return:          the (batch_size, n_ctx) array of tokens for both the source and target batches.
     """
     src_list, tgt_list = [], []
 

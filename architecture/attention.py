@@ -18,7 +18,7 @@ def attention(
     dropout_module: Optional[nn.Module] = None,
 ):
     """
-    Takes the generated query, key, and value matrices,
+    Takes the query, key, and value matrices,
     and returns the resulting output (weighted sum of the values)
     along with the attention pattern itself.
     query, key, and value all have shape (batch, head, sequence, key).
