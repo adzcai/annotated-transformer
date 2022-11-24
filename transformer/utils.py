@@ -38,6 +38,10 @@ class LayerNorm(nn.Module):
 
 
 class SublayerConnection(nn.Module):
+    """
+    Wraps a sublayer with a residual connection, layer norm, and dropout.
+    """
+
     def __init__(self, d_layer: int, p_dropout: float):
         super().__init__()
 
@@ -46,17 +50,24 @@ class SublayerConnection(nn.Module):
 
     def forward(self, x: Tensor, sublayer: nn.Module):
         """
-        Apply a residual connection to any sublayer,
+        Apply a residual connection to a sublayer
+        (i.e. either a self-attention or feedforward sublayer),
         as long as the input and output of the sublayer have the same shape.
         What order should layer norm, sublayer, and dropout go in?
         Probably layer norm first, since we want to normalize the residuals
         from the previous layer.
         """
-
-        return x + self.dropout(sublayer(self.layer_norm(x)))
+        out = self.layer_norm(x)
+        out = sublayer(out)
+        out = self.dropout(out)
+        return x + out
 
 
 class FeedForward(nn.Module):
+    """
+    A simple one-hidden-layer neural network, equivalent to w_2 @ relu(w_1 @ x).
+    """
+
     def __init__(self, d_model: int, d_ff: int, p_dropout=0.1):
         super().__init__()
 
@@ -64,22 +75,32 @@ class FeedForward(nn.Module):
         self.w_2 = nn.Linear(d_ff, d_model)
         self.dropout = nn.Dropout(p_dropout)
 
-    def forward(self, x: Tensor):
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        :param x: (n_ctx, d_model)
+        :return: (n_ctx, d_model)
+        """
         hidden = F.relu(self.w_1(x))
         hidden = self.dropout(hidden)
         return self.w_2(hidden)
 
 
 class Embeddings(nn.Module):
+    """
+    Embed one-hot vocab into embeddings.
+    Intuitively the same thing that word2vec does, but learned.
+    """
+
     def __init__(self, d_model: int, n_vocab: int):
         super().__init__()
 
         self.lookup_table = nn.Embedding(n_vocab, d_model)
         self.d_model = d_model
 
-    def forward(self, x: Tensor):
+    def forward(self, x: Tensor) -> Tensor:
         """
-        TODO Why do we scale the embeddings by the model size? Probably some "training stability" argument
+        TODO Why do we scale the embeddings by the model size?
+        Probably some "training stability" argument
         """
         return self.lookup_table(x) * math.sqrt(self.d_model)
 
@@ -98,7 +119,7 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x: Tensor):
         """
-        :param x: a Tensor of shape (batch, n_ctx, d_model)
+        :param x: a Tensor of shape (n_batches, n_ctx, d_model)
         :return: the Tensor with positional embeddings and dropout added
         """
         x = x + self.pe[:, : x.size(1)]
@@ -110,12 +131,13 @@ def get_fixed_positional_embeddings(d_model: int, n_ctx: int):
     """
     Returns a (n_ctx, d_model) matrix where the odd-indexed embedding dimensions are distributed as a sine wave
     and the even ones are distributed as a cosine.
+    higher dimensions have higher frequency.
     """
     pe = torch.empty(n_ctx, d_model)  # matrix to store positional embeddings
     position = torch.arange(0, n_ctx).unsqueeze(1)  # (n_ctx, 1)
 
     evens = torch.arange(0, d_model, 2)
-    # calculating exponents is faster with exp than pow
+    # calculate exponents in log space for efficiency reasons
     div_term = torch.exp(evens * (-math.log(10000.0) / d_model))
     pe[:, 0::2] = torch.sin(position * div_term)
     pe[:, 1::2] = torch.cos(position * div_term)
