@@ -1,4 +1,5 @@
 # Handles data preprocessing and batching.
+# Here's the actual tricky part!
 
 from typing import Optional, List, Tuple, Callable
 import os
@@ -14,10 +15,11 @@ from torchtext.vocab import build_vocab_from_iterator
 from torchtext.data.functional import to_map_style_dataset
 import torchtext.datasets as datasets
 
-from architecture.utils import subsequent_mask
+from transformer.utils import subsequent_mask
 
 global max_src_in_batch, max_tgt_in_batch
 
+# special meta-level tokens
 BOS_TOKEN = "<s>"
 EOS_TOKEN = "</s>"
 BLANK_WORD = "<blank>"
@@ -31,6 +33,7 @@ Vocabulary = Callable[[List[str]], List[int]]
 
 
 def get_tokenizer(spacy) -> Tokenizer:
+    """Wrapper around the spacy tokenizer"""
     def tokenize(text: str) -> List[str]:
         """Splits the text into a list of (string) tokens."""
         return [tok.text for tok in spacy.tokenizer(text)]

@@ -1,7 +1,7 @@
 import spacy, os
 from tqdm import tqdm, trange
 
-from architecture.transformer import ModelConfig
+from transformer.transformer import ModelConfig
 from train import train_model, TrainingConfig
 from preprocess import build_vocab
 

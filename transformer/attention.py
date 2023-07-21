@@ -21,12 +21,14 @@ def attention(
     Takes the query, key, and value matrices,
     and returns the resulting output (weighted sum of the values)
     along with the attention pattern itself.
-    query, key, and value all have shape (batch, head, sequence, key).
+    :param query, key, value: all have shape (n_batches, n_heads, n_ctx, d_key).
+    :param mask: (1, n_ctx, n_ctx)
     """
     d_key = query.size(-1)
     attn_logits = query @ key.transpose(-2, -1) / math.sqrt(d_key)
 
     if mask is not None:
+        print(mask.shape)
         attn_logits.masked_fill_(
             mask == False, -1e9
         )  # negative infinity, or close enough

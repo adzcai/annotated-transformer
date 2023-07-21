@@ -18,27 +18,32 @@ class LabelSmoothing(nn.Module):
         """
         super(LabelSmoothing, self).__init__()
 
-        self.criterion = nn.KLDivLoss(reduction="sum")
+        self.criterion = nn.KLDivLoss(reduction="sum")  # TODO why not cross-entropy?
         self.padding_idx = padding_idx
         self.confidence = 1.0 - smoothing
         self.smoothing = smoothing
-        self.n_classes = n_classes
+        self.n_classes = n_classes  # set to n_vocab in NLP context
         self.true_dist = None
 
     def forward(self, x: Tensor, target: Tensor):
         """
         Use some tricky PyTorch to distribute the confidence evenly.
 
-        :param x: a Tensor of shape (batch, class)
-        :param target:
-        :return:
+        :param x: a Tensor of shape (n_batch, n_classes)
+        :param target: n_batch
+        :return: the loss
         """
         assert x.size(1) == self.n_classes
 
+        # don't backprop through this. set probability of incorrect labels
+        # there are n_classes - 2 incorrect classes, ignoring the true class and padding
+        # in total these should have probability self.smoothing
         true_dist = torch.ones_like(x).detach() * self.smoothing / (self.n_classes - 2)
+        # insert self.confidence into the true_dist matrix at the indices given by target
         true_dist.scatter_(dim=1, index=target.unsqueeze(1), value=self.confidence)
-        true_dist[:, self.padding_idx] = 0
+        true_dist[:, self.padding_idx] = 0  # and set padding token to zero probability
 
+        # ignore padding tokens in the target (set to zero probability)
         mask = torch.nonzero(target == self.padding_idx)
         if mask.dim() > 0:  # nonempty
             true_dist.index_fill_(0, mask.squeeze(), 0.0)
@@ -47,6 +52,7 @@ class LabelSmoothing(nn.Module):
 
 
 class DummyOptimizer(torch.optim.Optimizer):
+    """Used in eval loops."""
     def __init__(self):
         super(torch.optim.Optimizer, self).__init__()
 
@@ -60,6 +66,7 @@ class DummyOptimizer(torch.optim.Optimizer):
 
 
 class DummyScheduler(object):
+    """Used in eval loops."""
     def step(self):
         pass
 
@@ -67,7 +74,7 @@ class DummyScheduler(object):
 def get_lr(step: int, d_model: int, scale: float, n_warmup_steps: int):
     """
     Gets the learning rate at the given step.
-    Set 0th step to be equal to the 1st step to avoid division by 0 in LambdaLR.
+    Set 0th step to be equal to the 1st step to avoid division by 0 in LambdaLR scheduler.
     """
     if step == 0:
         step = 1

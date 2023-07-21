@@ -11,7 +11,7 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from architecture.transformer import make_model, ModelConfig
+from transformer.transformer import make_model, ModelConfig
 from preprocess import Batch, create_loaders, get_tokenizer, Vocabulary
 from optimize import (
     SimpleLoss,
